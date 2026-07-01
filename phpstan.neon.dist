@@ -1,0 +1,16 @@
+parameters:
+    level: max
+    paths:
+        - src
+        - tests
+    ignoreErrors:
+        # PHPDoc is prohibited inside tests/; iterable value types on the in-memory log buffer
+        # cannot be expressed there.
+        - identifier: missingType.iterableValue
+          path: tests/Unit/CapturingLogger.php
+
+        # The entries exposed by CapturingLogger above are typed as `array` for the same reason,
+        # so PHPStan cannot infer the shape consumed by these assertions.
+        - identifier: offsetAccess.nonOffsetAccessible
+          path: tests/Unit/CorrelatedLoggerTest.php
+    reportUnmatchedIgnoredErrors: true
