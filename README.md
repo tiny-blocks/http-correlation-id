@@ -7,7 +7,9 @@
 * [How to use](#how-to-use)
     + [Wiring the middleware](#wiring-the-middleware)
     + [Configuring a custom provider](#configuring-a-custom-provider)
+    + [Propagating to outbound boundaries](#propagating-to-outbound-boundaries)
     + [Emitting correlated logs](#emitting-correlated-logs)
+* [Concurrency model](#concurrency-model)
 * [License](#license)
 * [Contributing](#contributing)
 
@@ -16,13 +18,13 @@
 Provides a PSR-15 middleware that guarantees every inbound HTTP request carries a correlation identifier. When the
 incoming request already includes a `Correlation-Id` header, the value is reused. Otherwise, a new identifier is
 generated through a configurable provider (UUID v7 by default). The correlation ID is exposed as the request
-attribute `correlationId` so downstream handlers can read it, and is echoed back through the `Correlation-Id`
-response header for end-to-end tracing across services.
+attribute `correlationId`, is available through `CorrelationIdMiddleware::correlationId()` for outbound
+propagation, and is echoed back through the `Correlation-Id` response header for end-to-end tracing across
+services.
 
-The library also ships `CorrelatedLogger`, a thin wrapper over any PSR-3 `LoggerInterface` that resolves the
-correlation ID from the request and attaches it to the log context under the `correlation_id` key. This produces
-structured logs that can be grouped and filtered by the correlation ID without any extra plumbing in the consumer's
-log calls.
+The library also ships `CorrelatedLogger`, a PSR-3 `LoggerInterface` decorator that reads the correlation ID at
+each log write and attaches it to the log context under the `correlation_id` key. This produces structured logs
+that can be grouped and filtered by the correlation ID without any extra plumbing in the consumer's log calls.
 
 ## Installation
 
@@ -49,7 +51,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 use TinyBlocks\Http\CorrelationId\CorrelationIdMiddleware;
 
 # Build the middleware with the default UUID v7 provider.
-$middleware = CorrelationIdMiddleware::create()->build();
+$middleware = CorrelationIdMiddleware::build();
 
 # Process an inbound request through the middleware.
 $response = $middleware->process(
@@ -93,44 +95,62 @@ $provider = new readonly class () implements CorrelationIdProvider {
 };
 
 # Build the middleware with the custom provider.
-$middleware = CorrelationIdMiddleware::create()
-    ->withProvider(provider: $provider)
-    ->build();
+$middleware = CorrelationIdMiddleware::build(provider: $provider);
 ```
 
-### Emitting correlated logs
+### Propagating to outbound boundaries
 
-Uses `CorrelatedLogger` inside a downstream handler so that every log entry automatically carries the request's
-correlation ID under the `correlation_id` context key.
+`CorrelationIdMiddleware::correlationId()` returns the correlation ID of the request in flight. The instance is
+stable, so it can be injected once into outbound boundaries (HTTP clients, message payloads), and its `toString()`
+reflects, at read time, the identifier the middleware resolved for the request being handled. It reads as an
+empty string before any request was handled.
 
 ```php
 <?php
 
 declare(strict_types=1);
 
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Server\RequestHandlerInterface;
-use Psr\Log\LoggerInterface;
-use TinyBlocks\Http\CorrelationId\CorrelatedLogger;
+use TinyBlocks\Http\CorrelationId\CorrelationIdMiddleware;
 
-final readonly class PlaceOrderHandler implements RequestHandlerInterface
-{
-    public function __construct(private LoggerInterface $logger)
-    {
-    }
+$middleware = CorrelationIdMiddleware::build();
 
-    public function handle(ServerRequestInterface $request): ResponseInterface
-    {
-        # Resolve a PSR-3 logger that attaches the request's correlation ID to every log context.
-        $logger = CorrelatedLogger::from($this->logger)->resolve($request);
+# Inject into outbound clients, message publishers, or bind in the DI container.
+$correlationId = $middleware->correlationId();
 
-        $logger->info('Order placed.', ['order_id' => 42]);
-
-        # ...
-    }
-}
+# Anywhere downstream, while a request is being handled.
+$correlationId->toString();
 ```
+
+### Emitting correlated logs
+
+Decorates any PSR-3 logger once, at wiring time, with the correlation ID of the request in flight. Every log entry
+emitted anywhere in the application automatically carries the `correlation_id` context key, and entries emitted
+outside a request (boot, workers) simply omit the key.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use TinyBlocks\Http\CorrelationId\CorrelatedLogger;
+use TinyBlocks\Http\CorrelationId\CorrelationIdMiddleware;
+
+$middleware = CorrelationIdMiddleware::build();
+
+# Decorate the application logger once, at wiring time.
+$logger = CorrelatedLogger::from(logger: $applicationLogger, correlationId: $middleware->correlationId());
+
+# Anywhere downstream, the entry carries the correlation_id context key.
+$logger->info('Order placed.', ['order_id' => 42]);
+```
+
+## Concurrency model
+
+`correlationId()` holds one value per middleware instance, which means one value per PHP process. This is correct
+on process-per-request runtimes (PHP-FPM, Apache mod_php), where a process handles a single request at a time. On
+long-running concurrent runtimes handling several requests in one process (Swoole, RoadRunner worker mode), use
+the request attribute `correlationId` (name available as `CorrelationIdMiddleware::ATTRIBUTE_NAME`), which is
+isolated per request by construction.
 
 ## License
 

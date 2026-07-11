@@ -4,51 +4,44 @@ declare(strict_types=1);
 
 namespace TinyBlocks\Http\CorrelationId;
 
-use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
-use TinyBlocks\Http\CorrelationId\Internal\CorrelationAttachingLogger;
+use Stringable;
 
 /**
- * Wraps a PSR-3 logger so that log entries emitted during request handling automatically carry
- * the request's correlation identifier in the log context.
+ * PSR-3 logger that attaches the correlation ID of the request in flight to every log context
+ * under the <code>correlation_id</code> key.
  */
-final readonly class CorrelatedLogger
+final class CorrelatedLogger extends AbstractLogger
 {
-    private function __construct(private LoggerInterface $logger)
-    {
+    private function __construct(
+        private readonly LoggerInterface $logger,
+        private readonly CorrelationId $correlationId
+    ) {
     }
 
     /**
-     * Creates a CorrelatedLogger from a PSR-3 logger.
+     * Creates a CorrelatedLogger from a PSR-3 logger and a correlation ID.
      *
      * @param LoggerInterface $logger The underlying logger to delegate writes to.
+     * @param CorrelationId $correlationId The correlation ID read at each log write, typically the one
+     *                                     exposed by {@see CorrelationIdMiddleware::correlationId()}.
      * @return CorrelatedLogger The created instance.
      */
-    public static function from(LoggerInterface $logger): CorrelatedLogger
+    public static function from(LoggerInterface $logger, CorrelationId $correlationId): CorrelatedLogger
     {
-        return new CorrelatedLogger(logger: $logger);
+        return new CorrelatedLogger(logger: $logger, correlationId: $correlationId);
     }
 
-    /**
-     * Returns a PSR-3 logger that attaches the request's correlation ID to every log context.
-     *
-     * <p>When the request has no <code>correlationId</code> attribute, or the attribute is not a
-     * {@see CorrelationId} instance, the underlying logger is returned unchanged.</p>
-     *
-     * @param ServerRequestInterface $request The request whose correlation ID should be attached.
-     * @return LoggerInterface A logger that emits log entries carrying the correlation ID.
-     */
-    public function resolve(ServerRequestInterface $request): LoggerInterface
+    public function log($level, string|Stringable $message, array $context = []): void
     {
-        $correlationId = $request->getAttribute('correlationId');
+        $correlationId = $this->correlationId->toString();
 
-        if (!$correlationId instanceof CorrelationId) {
-            return $this->logger;
+        if ($correlationId === '') {
+            $this->logger->log($level, $message, $context);
+            return;
         }
 
-        return new CorrelationAttachingLogger(
-            logger: $this->logger,
-            correlationId: $correlationId->toString()
-        );
+        $this->logger->log($level, $message, [...$context, 'correlation_id' => $correlationId]);
     }
 }

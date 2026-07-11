@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TinyBlocks\Http\CorrelationId;
 
 /**
- * Represents an immutable correlation identifier used to trace a request across service boundaries.
+ * Correlation identifier used to trace a request across service boundaries.
  */
 interface CorrelationId
 {

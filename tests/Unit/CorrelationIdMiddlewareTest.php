@@ -7,7 +7,9 @@ namespace Test\TinyBlocks\Http\CorrelationId\Unit;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 use TinyBlocks\Http\CorrelationId\CorrelationId;
 use TinyBlocks\Http\CorrelationId\CorrelationIdMiddleware;
 use TinyBlocks\Http\CorrelationId\CorrelationIdProvider;
@@ -33,9 +35,7 @@ final class CorrelationIdMiddlewareTest extends TestCase
         };
 
         /** @And a middleware configured with the custom provider */
-        $middleware = CorrelationIdMiddleware::create()
-            ->withProvider(provider: $customProvider)
-            ->build();
+        $middleware = CorrelationIdMiddleware::build(provider: $customProvider);
 
         /** @And a request without the Correlation-Id header */
         $request = new ServerRequest('GET', '/');
@@ -56,13 +56,87 @@ final class CorrelationIdMiddlewareTest extends TestCase
         self::assertSame($fixedValue, $response->getHeaderLine('Correlation-Id'));
     }
 
+    public function testCorrelationIdStartsEmptyBeforeAnyRequestIsHandled(): void
+    {
+        /** @Given a middleware no request has gone through yet */
+        $middleware = CorrelationIdMiddleware::build();
+
+        /** @When the correlation ID of the request in flight is read */
+        $value = $middleware->correlationId()->toString();
+
+        /** @Then the value should be empty */
+        self::assertSame('', $value);
+    }
+
+    public function testCorrelationIdExposesTheValueResolvedFromTheRequestHeader(): void
+    {
+        /** @Given an existing correlation ID carried in the request header */
+        $existingCorrelationId = 'req-in-flight-42';
+
+        /** @And a middleware using the default provider */
+        $middleware = CorrelationIdMiddleware::build();
+
+        /** @When the middleware processes a request with that Correlation-Id header */
+        $middleware->process(
+            new ServerRequest('GET', '/', ['Correlation-Id' => $existingCorrelationId]),
+            new CapturingHandler()
+        );
+
+        /** @Then the correlation ID of the request in flight should expose the header value */
+        self::assertSame($existingCorrelationId, $middleware->correlationId()->toString());
+    }
+
+    public function testCorrelationIdIsAssignedBeforeTheHandlerRuns(): void
+    {
+        /** @Given a middleware using the default provider */
+        $middleware = CorrelationIdMiddleware::build();
+
+        /** @And a handler that records the correlation ID of the request in flight at handling time */
+        $handler = new readonly class ($middleware->correlationId()) implements RequestHandlerInterface {
+            public function __construct(private CorrelationId $correlationId)
+            {
+            }
+
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                return new Response(status: 200, headers: ['Seen-By-Handler' => $this->correlationId->toString()]);
+            }
+        };
+
+        /** @When the middleware processes a request without the Correlation-Id header */
+        $response = $middleware->process(new ServerRequest('GET', '/'), $handler);
+
+        /** @Then the handler should have observed the correlation ID already assigned */
+        self::assertNotSame('', $response->getHeaderLine('Seen-By-Handler'));
+        self::assertSame($response->getHeaderLine('Correlation-Id'), $response->getHeaderLine('Seen-By-Handler'));
+    }
+
+    public function testCorrelationIdReflectsTheLatestHandledRequest(): void
+    {
+        /** @Given a middleware using the default provider */
+        $middleware = CorrelationIdMiddleware::build();
+
+        /** @When the middleware processes two requests carrying different Correlation-Id headers */
+        $middleware->process(
+            new ServerRequest('GET', '/first', ['Correlation-Id' => 'req-first']),
+            new CapturingHandler()
+        );
+        $middleware->process(
+            new ServerRequest('GET', '/second', ['Correlation-Id' => 'req-second']),
+            new CapturingHandler()
+        );
+
+        /** @Then the correlation ID of the request in flight should expose the latest value */
+        self::assertSame('req-second', $middleware->correlationId()->toString());
+    }
+
     public function testPreservesExistingResponseHeaders(): void
     {
         /** @Given a request without the Correlation-Id header */
         $request = new ServerRequest('GET', '/');
 
         /** @And a middleware using the default provider */
-        $middleware = CorrelationIdMiddleware::create()->build();
+        $middleware = CorrelationIdMiddleware::build();
 
         /** @And a handler that returns a response with an existing custom header */
         $handler = new CapturingHandler(
@@ -91,7 +165,7 @@ final class CorrelationIdMiddlewareTest extends TestCase
         $request = new ServerRequest('GET', '/', ['Correlation-Id' => $existingCorrelationId]);
 
         /** @And a middleware using the default provider */
-        $middleware = CorrelationIdMiddleware::create()->build();
+        $middleware = CorrelationIdMiddleware::build();
 
         /** @And a handler that captures the request */
         $handler = new CapturingHandler();
@@ -112,7 +186,7 @@ final class CorrelationIdMiddlewareTest extends TestCase
     public function testEachRequestGeneratesUniqueCorrelationId(): void
     {
         /** @Given a middleware using the default provider */
-        $middleware = CorrelationIdMiddleware::create()->build();
+        $middleware = CorrelationIdMiddleware::build();
 
         /** @And a first request without the Correlation-Id header */
         $firstRequest = new ServerRequest('GET', '/first');
@@ -147,7 +221,7 @@ final class CorrelationIdMiddlewareTest extends TestCase
         $request = new ServerRequest('GET', '/');
 
         /** @And a middleware using the default provider */
-        $middleware = CorrelationIdMiddleware::create()->build();
+        $middleware = CorrelationIdMiddleware::build();
 
         /** @And a handler that captures the request */
         $handler = new CapturingHandler();
@@ -169,7 +243,7 @@ final class CorrelationIdMiddlewareTest extends TestCase
         $request = new ServerRequest('GET', '/');
 
         /** @And a middleware using the default provider */
-        $middleware = CorrelationIdMiddleware::create()->build();
+        $middleware = CorrelationIdMiddleware::build();
 
         /** @And a handler that captures the request */
         $handler = new CapturingHandler();
@@ -194,7 +268,7 @@ final class CorrelationIdMiddlewareTest extends TestCase
         $request = new ServerRequest('GET', '/', ['Correlation-Id' => '']);
 
         /** @And a middleware using the default provider */
-        $middleware = CorrelationIdMiddleware::create()->build();
+        $middleware = CorrelationIdMiddleware::build();
 
         /** @And a handler that captures the request */
         $handler = new CapturingHandler();
@@ -219,7 +293,7 @@ final class CorrelationIdMiddlewareTest extends TestCase
         $request = new ServerRequest('GET', '/');
 
         /** @And a middleware using the default provider */
-        $middleware = CorrelationIdMiddleware::create()->build();
+        $middleware = CorrelationIdMiddleware::build();
 
         /** @And a handler that captures the request */
         $handler = new CapturingHandler();
@@ -261,7 +335,7 @@ final class CorrelationIdMiddlewareTest extends TestCase
             });
 
         /** @And a middleware using the default provider */
-        $middleware = CorrelationIdMiddleware::create()->build();
+        $middleware = CorrelationIdMiddleware::build();
 
         /** @And a handler that captures the request */
         $handler = new CapturingHandler();
