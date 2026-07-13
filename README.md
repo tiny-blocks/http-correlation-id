@@ -26,6 +26,10 @@ The library also ships `CorrelatedLogger`, a PSR-3 `LoggerInterface` decorator t
 each log write and attaches it to the log context under the `correlation_id` key. This produces structured logs
 that can be grouped and filtered by the correlation ID without any extra plumbing in the consumer's log calls.
 
+The header name is published as `CorrelationIdMiddleware::HEADER_NAME`, so outbound propagation never spells it
+by hand. Pair it with a header-setting PSR-18 decorator (for example `HeaderSettingClient` from
+`tiny-blocks/http`) to carry the identifier into every downstream HTTP call.
+
 ## Installation
 
 ```bash
@@ -119,6 +123,31 @@ $correlationId = $middleware->correlationId();
 
 # Anywhere downstream, while a request is being handled.
 $correlationId->toString();
+```
+
+For outbound HTTP calls, pair the identifier with a header-setting PSR-18 decorator, such as
+`HeaderSettingClient` from `tiny-blocks/http`. The header name comes from
+`CorrelationIdMiddleware::HEADER_NAME`, so it never drifts across services, and a value resolving to an empty
+string (boot, workers) leaves the request untouched.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use TinyBlocks\Http\Client\HeaderSettingClient;
+use TinyBlocks\Http\CorrelationId\CorrelationIdMiddleware;
+
+$middleware = CorrelationIdMiddleware::build();
+$correlationId = $middleware->correlationId();
+
+# Decorate any PSR-18 client once, at wiring time.
+$client = HeaderSettingClient::with(client: $psr18Client, headerValues: [
+    CorrelationIdMiddleware::HEADER_NAME => static fn(): string => $correlationId->toString()
+]);
+
+# Anywhere downstream, the outbound request carries the Correlation-Id header.
+$client->sendRequest($request);
 ```
 
 ### Emitting correlated logs

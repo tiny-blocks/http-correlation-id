@@ -24,7 +24,11 @@ final readonly class CorrelationIdMiddleware implements MiddlewareInterface
      */
     public const string ATTRIBUTE_NAME = 'correlationId';
 
-    private const string HEADER_NAME = 'Correlation-Id';
+    /**
+     * Name of the header carrying the correlation ID on requests and responses. Use it when
+     * propagating the identifier to outbound requests, so the name never drifts across services.
+     */
+    public const string HEADER_NAME = 'Correlation-Id';
 
     private function __construct(
         private CorrelationIdProvider $provider,
