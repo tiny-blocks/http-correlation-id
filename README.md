@@ -9,7 +9,7 @@
     + [Configuring a custom provider](#configuring-a-custom-provider)
     + [Propagating to outbound boundaries](#propagating-to-outbound-boundaries)
     + [Emitting correlated logs](#emitting-correlated-logs)
-* [Concurrency model](#concurrency-model)
+* [FAQ](#faq)
 * [License](#license)
 * [Contributing](#contributing)
 
@@ -173,7 +173,9 @@ $logger = CorrelatedLogger::from(logger: $applicationLogger, correlationId: $mid
 $logger->info('Order placed.', ['order_id' => 42]);
 ```
 
-## Concurrency model
+## FAQ
+
+### 01. Is `correlationId()` safe on concurrent runtimes?
 
 `correlationId()` holds one value per middleware instance, which means one value per PHP process. This is correct
 on process-per-request runtimes (PHP-FPM, Apache mod_php), where a process handles a single request at a time. On
