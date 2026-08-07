@@ -32,10 +32,11 @@
     },
     "require-dev": {
         "ergebnis/composer-normalize": "^2.52",
-        "guzzlehttp/psr7": "^2.12",
-        "infection/infection": "^0.33",
+        "guzzlehttp/psr7": "^3.0",
+        "infection/infection": "^0.34",
         "phpstan/phpstan": "^2.2",
-        "phpunit/phpunit": "^13.1",
+        "phpunit/phpunit": "^13.2",
+        "slevomat/coding-standard": "^8.31",
         "squizlabs/php_codesniffer": "^4.0"
     },
     "minimum-stability": "stable",
@@ -52,6 +53,7 @@
     },
     "config": {
         "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true,
             "ergebnis/composer-normalize": true,
             "infection/extension-installer": true
         },
