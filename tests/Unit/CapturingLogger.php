@@ -11,7 +11,7 @@ final class CapturingLogger extends AbstractLogger
 {
     private array $entries = [];
 
-    public function log($level, string|Stringable $message, array $context = []): void
+    public function log(mixed $level, string|Stringable $message, array $context = []): void
     {
         $this->entries[] = [
             'level'   => $level,

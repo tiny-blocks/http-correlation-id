@@ -17,6 +17,6 @@ final class RequestScopedCorrelationId implements CorrelationId
 
     public function toString(): string
     {
-        return $this->correlationId?->toString() ?? '';
+        return ($this->correlationId?->toString() ?? '');
     }
 }
