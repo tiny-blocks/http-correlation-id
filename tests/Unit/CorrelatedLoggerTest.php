@@ -13,6 +13,31 @@ use TinyBlocks\Http\CorrelationId\Internal\UuidCorrelationId;
 
 final class CorrelatedLoggerTest extends TestCase
 {
+    public function testReadsTheCorrelationIdAtLogTime(): void
+    {
+        /** @Given an in-memory PSR-3 logger */
+        $logger = new CapturingLogger();
+
+        /** @And a middleware sharing its correlation ID with a correlated logger built before any request */
+        $middleware = CorrelationIdMiddleware::build();
+        $correlatedLogger = CorrelatedLogger::from(logger: $logger, correlationId: $middleware->correlationId());
+
+        /** @And a request carrying a Correlation-Id header handled after the logger was built */
+        $middleware->process(
+            new ServerRequest('GET', '/', ['Correlation-Id' => 'corr-late-bound']),
+            new CapturingHandler()
+        );
+
+        /** @When a log entry is emitted */
+        $correlatedLogger->info('charge routed');
+
+        /** @Then the recorded entry carries the correlation ID resolved after the logger was built */
+        $entries = $logger->loggedEntries();
+
+        self::assertCount(1, $entries);
+        self::assertSame('corr-late-bound', $entries[0]['context']['correlation_id']);
+    }
+
     public function testAttachesCorrelationIdToLogContext(): void
     {
         /** @Given an in-memory PSR-3 logger */
@@ -34,28 +59,6 @@ final class CorrelatedLoggerTest extends TestCase
         self::assertSame(LogLevel::INFO, $entries[0]['level']);
         self::assertSame('something happened', $entries[0]['message']);
         self::assertSame('corr-123', $entries[0]['context']['correlation_id']);
-    }
-
-    public function testPreservesExistingContextKeysWhenAttachingCorrelationId(): void
-    {
-        /** @Given an in-memory PSR-3 logger */
-        $logger = new CapturingLogger();
-
-        /** @And a correlated logger reading a fixed correlation ID */
-        $correlatedLogger = CorrelatedLogger::from(
-            logger: $logger,
-            correlationId: UuidCorrelationId::from(value: 'corr-xyz')
-        );
-
-        /** @When a log entry is emitted with additional context */
-        $correlatedLogger->info('order placed', ['order_id' => 42]);
-
-        /** @Then both the original context and the correlation ID are recorded */
-        $entries = $logger->loggedEntries();
-
-        self::assertCount(1, $entries);
-        self::assertSame(42, $entries[0]['context']['order_id']);
-        self::assertSame('corr-xyz', $entries[0]['context']['correlation_id']);
     }
 
     public function testOmitsCorrelationIdWhenTheValueIsEmpty(): void
@@ -81,28 +84,25 @@ final class CorrelatedLoggerTest extends TestCase
         self::assertArrayNotHasKey('correlation_id', $entries[0]['context']);
     }
 
-    public function testReadsTheCorrelationIdAtLogTime(): void
+    public function testPreservesExistingContextKeysWhenAttachingCorrelationId(): void
     {
         /** @Given an in-memory PSR-3 logger */
         $logger = new CapturingLogger();
 
-        /** @And a middleware sharing its correlation ID with a correlated logger built before any request */
-        $middleware = CorrelationIdMiddleware::build();
-        $correlatedLogger = CorrelatedLogger::from(logger: $logger, correlationId: $middleware->correlationId());
-
-        /** @And a request carrying a Correlation-Id header handled after the logger was built */
-        $middleware->process(
-            new ServerRequest('GET', '/', ['Correlation-Id' => 'corr-late-bound']),
-            new CapturingHandler()
+        /** @And a correlated logger reading a fixed correlation ID */
+        $correlatedLogger = CorrelatedLogger::from(
+            logger: $logger,
+            correlationId: UuidCorrelationId::from(value: 'corr-xyz')
         );
 
-        /** @When a log entry is emitted */
-        $correlatedLogger->info('charge routed');
+        /** @When a log entry is emitted with additional context */
+        $correlatedLogger->info('order placed', ['order_id' => 42]);
 
-        /** @Then the recorded entry carries the correlation ID resolved after the logger was built */
+        /** @Then both the original context and the correlation ID are recorded */
         $entries = $logger->loggedEntries();
 
         self::assertCount(1, $entries);
-        self::assertSame('corr-late-bound', $entries[0]['context']['correlation_id']);
+        self::assertSame(42, $entries[0]['context']['order_id']);
+        self::assertSame('corr-xyz', $entries[0]['context']['correlation_id']);
     }
 }

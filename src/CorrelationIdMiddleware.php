@@ -20,15 +20,15 @@ use TinyBlocks\Http\CorrelationId\Internal\UuidCorrelationIdProvider;
 final readonly class CorrelationIdMiddleware implements MiddlewareInterface
 {
     /**
-     * Name of the request attribute carrying the resolved {@see CorrelationId}.
-     */
-    public const string ATTRIBUTE_NAME = 'correlationId';
-
-    /**
      * Name of the header carrying the correlation ID on requests and responses. Use it when
      * propagating the identifier to outbound requests, so the name never drifts across services.
      */
     public const string HEADER_NAME = 'Correlation-Id';
+
+    /**
+     * Name of the request attribute carrying the resolved {@see CorrelationId}.
+     */
+    public const string ATTRIBUTE_NAME = 'correlationId';
 
     private function __construct(
         private CorrelationIdProvider $provider,
